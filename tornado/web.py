@@ -994,7 +994,8 @@ class RequestHandler(object):
                 if self.check_etag_header():
                     self._write_buffer = []
                     self.set_status(304)
-            if self._status_code in (204, 304):
+            if (self._status_code in (204, 304) or
+                (self._status_code >= 100 and self._status_code < 200)):
                 assert not self._write_buffer, "Cannot send body with %s" % self._status_code
                 self._clear_headers_for_304()
             elif "Content-Length" not in self._headers:
@@ -1536,6 +1537,9 @@ class RequestHandler(object):
                 self._handle_request_exception(e)
             except Exception:
                 app_log.error("Exception in exception handler", exc_info=True)
+            finally:
+                # Unset result to avoid circular references
+                result = None
             if (self._prepared_future is not None and
                     not self._prepared_future.done()):
                 # In case we failed before setting _prepared_future, do it
@@ -2278,7 +2282,11 @@ class RedirectHandler(RequestHandler):
         self._permanent = permanent
 
     def get(self, *args):
-        self.redirect(self._url.format(*args), permanent=self._permanent)
+        to_url = self._url.format(*args)
+        if self.request.query_arguments:
+            to_url = httputil.url_concat(
+                to_url, list(httputil.qs_to_qsl(self.request.query_arguments)))
+        self.redirect(to_url, permanent=self._permanent)
 
 
 class StaticFileHandler(RequestHandler):
